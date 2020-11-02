@@ -1,6 +1,7 @@
 const std = @import("std");
 const afd = @import("afd.zig");
 const windows = @import("windows.zig");
+const ws2_32 = windows.ws2_32;
 
 const math = std.math;
 const testing = std.testing;
@@ -33,6 +34,10 @@ pub const Poller = struct {
     pub fn deinit(self: *const Self) void {
         self.driver.deinit();
         windows.CloseHandle(self.port);
+    }
+
+    pub fn register(self: *const Self, handle: *const Handle, events: windows.ULONG) !void {
+        try self.driver.poll(try windows.findUnderlyingSocket(@ptrCast(ws2_32.SOCKET, handle.inner)), events, {});
     }
 
     pub fn poll(self: *const Self) !void {
