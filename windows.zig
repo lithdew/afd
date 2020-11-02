@@ -86,3 +86,25 @@ pub fn findUnderlyingSocket(socket: ws2_32.SOCKET) !ws2_32.SOCKET {
 
     return err;
 }
+
+pub fn connect(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, len: ws2_32.socklen_t) !void {
+    const rc = ws2_32.connect(sock, sock_addr, @intCast(i32, len));
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAEADDRINUSE => error.AddressInUse,
+            .WSAEADDRNOTAVAIL => error.AddressNotAvailable,
+            .WSAECONNREFUSED => error.ConnectionRefused,
+            .WSAETIMEDOUT => error.ConnectionTimedOut,
+            .WSAEFAULT => error.BadAddress,
+            .WSAEINVAL => error.ListeningSocket,
+            .WSAEISCONN => error.AlreadyConnected,
+            .WSAENOTSOCK => error.NotASocket,
+            .WSAEACCES => error.BroadcastNotEnabled,
+            .WSAENOBUFS => error.SystemResources,
+            .WSAEAFNOSUPPORT => error.AddressFamilyNotSupported,
+            .WSAEINPROGRESS, .WSAEWOULDBLOCK => error.WouldBlock,
+            .WSAEHOSTUNREACH, .WSAENETUNREACH => error.NetworkUnreachable,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+}
