@@ -1,4 +1,6 @@
 const std = @import("std");
+const windows = @import("windows.zig");
+const kernel32 = @import("kernel32.zig");
 
 const mem = std.mem;
 const math = std.math;
@@ -7,9 +9,7 @@ const builtin = std.builtin;
 const testing = std.testing;
 
 const os = std.os;
-const windows = os.windows;
 const ws2_32 = windows.ws2_32;
-const kernel32 = windows.kernel32;
 
 const assert = std.debug.assert;
 
@@ -106,7 +106,7 @@ pub const Driver = packed struct {
         );
 
         if (handle == windows.INVALID_HANDLE_VALUE) {
-            return windows.unexpectedError(windows.kernel32.GetLastError());
+            return windows.unexpectedError(kernel32.GetLastError());
         }
 
         return Self{ .handle = handle };
