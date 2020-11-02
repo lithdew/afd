@@ -158,14 +158,14 @@ pub const AFD = packed struct {
 
         if (success == windows.FALSE) {
             switch (kernel32.GetLastError()) {
-                .IO_PENDING => {},
+                .IO_PENDING => return error.WouldBlock,
                 else => |err| return windows.unexpectedError(err),
             }
         }
 
         switch (@intToEnum(windows.Win32Error, @intCast(u16, frame.overlapped.Internal))) {
             .SUCCESS => {},
-            .NO_MORE_ITEMS => {},
+            .NO_MORE_ITEMS => return error.NoMoreItems,
             else => |err| return windows.unexpectedError(err),
         }
     }
