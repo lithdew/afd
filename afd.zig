@@ -1,11 +1,16 @@
 const std = @import("std");
 
-const unicode = std.unicode;
+const mem = std.mem;
 const math = std.math;
+const unicode = std.unicode;
+const builtin = std.builtin;
 
 const os = std.os;
 const windows = os.windows;
+const ws2_32 = windows.ws2_32;
 const kernel32 = windows.kernel32;
+
+const assert = std.debug.assert;
 
 pub const AFD_NO_FAST_IO = 0x00000001;
 pub const AFD_OVERLAPPED = 0x00000002;
@@ -87,6 +92,8 @@ pub const AFD = packed struct {
     handle: windows.HANDLE,
 
     pub fn init(comptime name: []const u8) !Self {
+        comptime assert(name.len > 0);
+
         const handle = kernel32.CreateFileW(
             unicode.utf8ToUtf16LeStringLiteral("\\\\.\\GLOBALROOT\\Device\\Afd\\" ++ name)[0..],
             windows.SYNCHRONIZE,
@@ -107,9 +114,66 @@ pub const AFD = packed struct {
     pub fn deinit(self: *const Self) void {
         windows.CloseHandle(self.handle);
     }
+
+    pub fn poll(self: *const Self, socket: ws2_32.SOCKET, events: windows.ULONG, user_data: anytype) !void {
+        var data: extern struct {
+            Base: AFD_POLL_INFO,
+            Handles: [1]AFD_POLL_HANDLE_INFO,
+        } = .{
+            .Base = .{
+                .NumberOfHandles = 1,
+                .Timeout = math.maxInt(i64),
+                .Exclusive = windows.FALSE,
+            },
+            .Handles = .{
+                .{
+                    .Handle = @ptrCast(windows.HANDLE, socket),
+                    .Status = .SUCCESS,
+                    .Events = events,
+                },
+            },
+        };
+
+        var overlapped: extern struct {
+            Base: windows.OVERLAPPED,
+            Data: @TypeOf(user_data),
+        } = .{
+            .Base = mem.zeroes(windows.OVERLAPPED),
+            .Data = user_data,
+        };
+
+        const ptr = @ptrCast(*c_void, &data);
+        const len = @intCast(windows.DWORD, @sizeOf(@TypeOf(data)));
+
+        const success = kernel32.DeviceIoControl(
+            self.handle,
+            IOCTL_AFD_POLL,
+            ptr,
+            len,
+            ptr,
+            len,
+            nnull,
+            @ptrCast(*windows.OVERLAPPED, &overlapped),
+        );
+
+        if (success == windows.FALSE) {
+            switch (kernel32.GetLastError()) {
+                .IO_PENDING => {},
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
+
+        switch (@intToEnum(windows.Win32Error, @intCast(u16, frame.overlapped.Internal))) {
+            .SUCCESS => {},
+            .NO_MORE_ITEMS => {},
+            else => |err| return windows.unexpectedError(err),
+        }
+    }
 };
 
 test "AFD.init() / AFD.deinit()" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
     const afd = try AFD.init("AFD");
     defer afd.deinit();
 }
