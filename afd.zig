@@ -87,7 +87,7 @@ pub const AFD_RECV_INFO = extern struct {
     TdiFlags: windows.ULONG,
 };
 
-pub const AFD = packed struct {
+pub const Driver = packed struct {
     const Self = @This();
 
     handle: windows.HANDLE,
@@ -153,7 +153,7 @@ pub const AFD = packed struct {
             len,
             ptr,
             len,
-            nnull,
+            null,
             @ptrCast(*windows.OVERLAPPED, &overlapped),
         );
 
@@ -176,9 +176,9 @@ test "" {
     testing.refAllDecls(@This());
 }
 
-test "AFD.init() / AFD.deinit()" {
+test "Driver.init() / Driver.deinit()" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    const afd = try AFD.init("AFD");
-    defer afd.deinit();
+    const driver = try Driver.init("AFD");
+    defer driver.deinit();
 }
