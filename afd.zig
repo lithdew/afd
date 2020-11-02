@@ -4,6 +4,7 @@ const mem = std.mem;
 const math = std.math;
 const unicode = std.unicode;
 const builtin = std.builtin;
+const testing = std.testing;
 
 const os = std.os;
 const windows = os.windows;
@@ -71,16 +72,16 @@ pub const AFD_POLL_INFO = extern struct {
 };
 
 pub const AFD_RECV_DATAGRAM_INFO = extern struct {
-    BufferArray: windows.LPWSABUF,
+    BufferArray: *ws2_32.WSABUF,
     BufferCount: windows.ULONG,
     AfdFlags: windows.ULONG,
     TdiFlags: windows.ULONG,
-    Address: *windows.sockaddr,
+    Address: *ws2_32.sockaddr,
     AddressLength: *usize,
 };
 
 pub const AFD_RECV_INFO = extern struct {
-    BufferArray: windows.LPWSABUF,
+    BufferArray: *ws2_32.WSABUF,
     BufferCount: windows.ULONG,
     AfdFlags: windows.ULONG,
     TdiFlags: windows.ULONG,
@@ -170,6 +171,10 @@ pub const AFD = packed struct {
         }
     }
 };
+
+test "" {
+    testing.refAllDecls(@This());
+}
 
 test "AFD.init() / AFD.deinit()" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
