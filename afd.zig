@@ -164,7 +164,7 @@ pub const Driver = packed struct {
             }
         }
 
-        switch (@intToEnum(windows.Win32Error, @intCast(u16, frame.overlapped.Internal))) {
+        switch (@intToEnum(windows.Win32Error, @intCast(u16, overlapped.Base.Internal))) {
             .SUCCESS => {},
             .NO_MORE_ITEMS => return error.NoMoreItems,
             else => |err| return windows.unexpectedError(err),

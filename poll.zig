@@ -8,6 +8,7 @@ const testing = std.testing;
 
 pub const Handle = struct {
     inner: windows.HANDLE,
+    events: windows.ULONG,
 };
 
 pub const Poller = struct {
@@ -28,6 +29,8 @@ pub const Poller = struct {
         const driver = try afd.Driver.init(driver_name);
         errdefer driver.deinit();
 
+        _ = try windows.CreateIoCompletionPort(driver.handle, port, 0, 0);
+
         return Self{ .port = port, .driver = driver };
     }
 
@@ -36,12 +39,17 @@ pub const Poller = struct {
         windows.CloseHandle(self.port);
     }
 
-    pub fn register(self: *const Self, handle: *const Handle, events: windows.ULONG) !void {
-        try self.driver.poll(try windows.findUnderlyingSocket(@ptrCast(ws2_32.SOCKET, handle.inner)), events, {});
+    pub fn register(self: *const Self, handle: *const Handle) !void {
+        const socket = try windows.findUnderlyingSocket(@ptrCast(ws2_32.SOCKET, handle.inner));
+
+        self.driver.poll(socket, handle.events, @as(u32, 1)) catch |err| switch (err) {
+            error.WouldBlock => {},
+            else => return err,
+        };
     }
 
     pub fn poll(self: *const Self) !void {
-        var events: [1024]iocp.OVERLAPPED_ENTRY = undefined;
+        var events: [1024]windows.OVERLAPPED_ENTRY = undefined;
 
         const num_events = try windows.GetQueuedCompletionStatusEx(self.port, &events, null, true);
 

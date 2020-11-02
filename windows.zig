@@ -1,6 +1,9 @@
 const std = @import("std");
 
-pub usingnamespace std.os.windows;
+const os = std.os;
+const windows = os.windows;
+
+pub usingnamespace windows;
 
 const IOC_VOID = 0x80000000;
 const IOC_OUT = 0x40000000;
