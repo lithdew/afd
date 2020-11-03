@@ -31,7 +31,16 @@ pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
     while (true) {
         windows.ReadFile_(handle.unwrap(), buf, &overlapped) catch |err| switch (err) {
             error.WouldBlock => {
-                _ = windows.kernel32.CancelIoEx(handle.unwrap(), &overlapped);
+                try windows.CancelIoEx(handle.unwrap(), &overlapped);
+
+                if (windows.GetOverlappedResult_(handle.unwrap(), &overlapped, true)) |_| {
+                    return error.RequestSucceeded;
+                } else |cancel_err| {
+                    if (cancel_err != error.OperationAborted) {
+                        return cancel_err;
+                    }
+                }
+
                 handle.waitUntilReadable();
                 continue;
             },

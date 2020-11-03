@@ -196,3 +196,25 @@ pub fn ReadFile_(handle: HANDLE, buf: []u8, overlapped: *OVERLAPPED) !void {
         };
     }
 }
+
+pub fn CancelIoEx(handle: HANDLE, overlapped: *OVERLAPPED) !void {
+    const rc = kernel32.CancelIoEx(handle, overlapped);
+    if (rc == 0) {
+        return switch (kernel32.GetLastError()) {
+            .NOT_FOUND => error.RequestNotFound,
+            else => |err| unexpectedError(err),
+        };
+    }
+}
+
+pub fn GetOverlappedResult_(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
+        return switch (kernel32.GetLastError()) {
+            .IO_INCOMPLETE => if (!wait) error.WouldBlock else unreachable,
+            .OPERATION_ABORTED => error.OperationAborted,
+            else => |err| unexpectedError(err),
+        };
+    }
+    return bytes;
+}
