@@ -17,8 +17,8 @@ pub fn main() !void {
 
     const addr = try net.Address.parseIp("127.0.0.1", 9000);
 
-    var handle = Handle{
-        .inner = try windows.WSASocketW(
+    var handle = try Handle.init(
+        try windows.WSASocketW(
             addr.any.family,
             ws2_32.SOCK_STREAM,
             ws2_32.IPPROTO_TCP,
@@ -26,13 +26,13 @@ pub fn main() !void {
             0,
             ws2_32.WSA_FLAG_OVERLAPPED,
         ),
-        .events = afd.AFD_POLL_ALL,
-    };
-    defer windows.closesocket(@ptrCast(ws2_32.SOCKET, handle.inner)) catch {};
+        afd.AFD_POLL_ALL,
+    );
+    defer windows.closesocket(@ptrCast(ws2_32.SOCKET, handle.unwrap())) catch {};
 
     try poller.register(&handle);
 
-    try windows.connect(@ptrCast(ws2_32.SOCKET, handle.inner), &addr.any, addr.getOsSockLen());
+    try windows.connect(@ptrCast(ws2_32.SOCKET, handle.unwrap()), &addr.any, addr.getOsSockLen());
 
     while (true) {
         try poller.poll();

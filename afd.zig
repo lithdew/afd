@@ -2,7 +2,6 @@ const std = @import("std");
 const windows = @import("windows.zig");
 const kernel32 = @import("kernel32.zig");
 
-const mem = std.mem;
 const math = std.math;
 const unicode = std.unicode;
 const builtin = std.builtin;
@@ -87,6 +86,46 @@ pub const AFD_RECV_INFO = extern struct {
     TdiFlags: windows.ULONG,
 };
 
+pub fn Data(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        inner: T,
+        state: extern struct {
+            Base: AFD_POLL_INFO,
+            Handles: [1]AFD_POLL_HANDLE_INFO,
+        },
+        request: windows.OVERLAPPED,
+
+        pub fn init(handle: windows.HANDLE, events: windows.ULONG) Self {
+            return .{
+                .inner = undefined,
+                .state = .{
+                    .Base = .{
+                        .NumberOfHandles = 1,
+                        .Timeout = math.maxInt(i64),
+                        .Exclusive = windows.FALSE,
+                    },
+                    .Handles = .{
+                        .{
+                            .Handle = handle,
+                            .Status = .SUCCESS,
+                            .Events = events,
+                        },
+                    },
+                },
+                .request = .{
+                    .Internal = 0,
+                    .InternalHigh = 0,
+                    .Offset = 0,
+                    .OffsetHigh = 0,
+                    .hEvent = null,
+                },
+            };
+        }
+    };
+}
+
 pub const Driver = packed struct {
     const Self = @This();
 
@@ -116,35 +155,9 @@ pub const Driver = packed struct {
         windows.CloseHandle(self.handle);
     }
 
-    pub fn poll(self: *const Self, socket: ws2_32.SOCKET, events: windows.ULONG, user_data: anytype) !void {
-        var data: extern struct {
-            Base: AFD_POLL_INFO,
-            Handles: [1]AFD_POLL_HANDLE_INFO,
-        } = .{
-            .Base = .{
-                .NumberOfHandles = 1,
-                .Timeout = math.maxInt(i64),
-                .Exclusive = windows.FALSE,
-            },
-            .Handles = .{
-                .{
-                    .Handle = @ptrCast(windows.HANDLE, socket),
-                    .Status = .SUCCESS,
-                    .Events = events,
-                },
-            },
-        };
-
-        var overlapped: extern struct {
-            Base: windows.OVERLAPPED,
-            Data: @TypeOf(user_data),
-        } = .{
-            .Base = mem.zeroes(windows.OVERLAPPED),
-            .Data = user_data,
-        };
-
-        const ptr = @ptrCast(*c_void, &data);
-        const len = @intCast(windows.DWORD, @sizeOf(@TypeOf(data)));
+    pub fn poll(self: *const Self, data: anytype) !void {
+        const ptr = @ptrCast(*c_void, &data.state);
+        const len = @intCast(windows.DWORD, @sizeOf(@TypeOf(data.state)));
 
         const success = kernel32.DeviceIoControl(
             self.handle,
@@ -154,7 +167,7 @@ pub const Driver = packed struct {
             ptr,
             len,
             null,
-            @ptrCast(*windows.OVERLAPPED, &overlapped),
+            &data.request,
         );
 
         if (success == windows.FALSE) {
@@ -164,7 +177,7 @@ pub const Driver = packed struct {
             }
         }
 
-        switch (@intToEnum(windows.Win32Error, @intCast(u16, overlapped.Base.Internal))) {
+        switch (@intToEnum(windows.Win32Error, @intCast(u16, data.request.Internal))) {
             .SUCCESS => {},
             .NO_MORE_ITEMS => return error.NoMoreItems,
             else => |err| return windows.unexpectedError(err),
