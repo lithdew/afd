@@ -12,3 +12,10 @@ pub extern "ws2_32" fn getsockopt(
     optval: [*c]u8,
     optlen: *socklen_t,
 ) callconv(.Stdcall) c_int;
+
+pub extern "ws2_32" fn recv(
+    s: SOCKET,
+    buf: [*]u8,
+    len: c_int,
+    flags: c_int,
+) callconv(.Stdcall) c_int;

@@ -122,6 +122,32 @@ pub fn connect(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, len: ws2_
     }
 }
 
+pub fn recv(sock: ws2_32.SOCKET, buf: []u8) !usize {
+    const rc = @import("ws2_32.zig").recv(sock, buf.ptr, @intCast(c_int, buf.len), 0);
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSANOTINITIALISED => error.WinsockNotInitialized,
+            .WSAENETDOWN => error.NetworkSubsystemFailed,
+            .WSAEFAULT => error.BadBuffer,
+            .WSAENOTCONN => error.SocketNotConnected,
+            .WSAEINTR => error.Cancelled,
+            .WSAEINPROGRESS, .WSAEWOULDBLOCK => error.WouldBlock,
+            .WSAENETRESET => error.ConnectionResetted,
+            .WSAENOTSOCK => error.NotASocket,
+            .WSAEOPNOTSUPP => error.FlagNotSupported,
+            .WSAESHUTDOWN => error.EndOfFile,
+            .WSAEMSGSIZE => error.MessageTooLarge,
+            .WSAEINVAL => error.SocketNotBound,
+            .WSAECONNABORTED => error.ConnectionAborted,
+            .WSAETIMEDOUT => error.Timeout,
+            .WSAECONNRESET => error.Refused,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+
+    return @intCast(usize, rc);
+}
+
 pub fn getsockoptError(fd: ws2_32.SOCKET) !void {
     var errno: usize = undefined;
     var errno_size: ws2_32.socklen_t = @sizeOf(@TypeOf(errno));

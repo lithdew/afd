@@ -29,10 +29,12 @@ pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
     };
 
     while (true) {
-        handle.waitUntilReadable();
-
         windows.ReadFile_(handle.unwrap(), buf, &overlapped) catch |err| switch (err) {
-            error.WouldBlock => continue,
+            error.WouldBlock => {
+                _ = windows.kernel32.CancelIoEx(handle.unwrap(), &overlapped);
+                handle.waitUntilReadable();
+                continue;
+            },
             else => return err,
         };
 
@@ -83,5 +85,8 @@ pub fn main() !void {
         try poller.poll();
     }
 
-    try nosuspend await frame;
+    nosuspend await frame catch |err| switch (err) {
+        error.EndOfFile => {},
+        else => return err,
+    };
 }
