@@ -34,7 +34,7 @@ pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
                 try windows.CancelIoEx(handle.unwrap(), &overlapped);
 
                 if (windows.GetOverlappedResult_(handle.unwrap(), &overlapped, true)) |_| {
-                    return error.RequestSucceeded;
+                    break;
                 } else |cancel_err| {
                     if (cancel_err != error.OperationAborted) {
                         return cancel_err;
@@ -47,8 +47,10 @@ pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
             else => return err,
         };
 
-        return overlapped.InternalHigh;
+        break;
     }
+
+    return overlapped.InternalHigh;
 }
 
 pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
