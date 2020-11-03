@@ -86,45 +86,41 @@ pub const AFD_RECV_INFO = extern struct {
     TdiFlags: windows.ULONG,
 };
 
-pub fn Data(comptime T: type) type {
-    return struct {
-        const Self = @This();
+pub const Data = struct {
+    const Self = @This();
 
-        inner: T,
-        state: extern struct {
-            Base: AFD_POLL_INFO,
-            Handles: [1]AFD_POLL_HANDLE_INFO,
-        },
-        request: windows.OVERLAPPED,
+    state: extern struct {
+        Base: AFD_POLL_INFO,
+        Handles: [1]AFD_POLL_HANDLE_INFO,
+    },
+    request: windows.OVERLAPPED,
 
-        pub fn init(handle: windows.HANDLE, events: windows.ULONG) Self {
-            return .{
-                .inner = undefined,
-                .state = .{
-                    .Base = .{
-                        .NumberOfHandles = 1,
-                        .Timeout = math.maxInt(i64),
-                        .Exclusive = windows.FALSE,
-                    },
-                    .Handles = .{
-                        .{
-                            .Handle = handle,
-                            .Status = .SUCCESS,
-                            .Events = events,
-                        },
+    pub fn init(handle: windows.HANDLE, events: windows.ULONG) Self {
+        return .{
+            .state = .{
+                .Base = .{
+                    .NumberOfHandles = 1,
+                    .Timeout = math.maxInt(i64),
+                    .Exclusive = windows.FALSE,
+                },
+                .Handles = .{
+                    .{
+                        .Handle = handle,
+                        .Status = .SUCCESS,
+                        .Events = events,
                     },
                 },
-                .request = .{
-                    .Internal = 0,
-                    .InternalHigh = 0,
-                    .Offset = 0,
-                    .OffsetHigh = 0,
-                    .hEvent = null,
-                },
-            };
-        }
-    };
-}
+            },
+            .request = .{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .Offset = 0,
+                .OffsetHigh = 0,
+                .hEvent = null,
+            },
+        };
+    }
+};
 
 pub const Driver = packed struct {
     const Self = @This();
@@ -173,6 +169,7 @@ pub const Driver = packed struct {
         if (success == windows.FALSE) {
             switch (kernel32.GetLastError()) {
                 .IO_PENDING => return error.WouldBlock,
+                .INVALID_HANDLE => return error.InvalidHandle,
                 else => |err| return windows.unexpectedError(err),
             }
         }

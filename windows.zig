@@ -108,3 +108,37 @@ pub fn connect(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, len: ws2_
         };
     }
 }
+
+pub fn getsockoptError(fd: ws2_32.SOCKET) !void {
+    var errno: usize = undefined;
+    var errno_size: ws2_32.socklen_t = @sizeOf(@TypeOf(errno));
+
+    const result = @import("ws2_32.zig").getsockopt(fd, ws2_32.SOL_SOCKET, ws2_32.SO_ERROR, @ptrCast([*c]u8, &errno), &errno_size);
+    if (result == ws2_32.SOCKET_ERROR) {
+        switch (ws2_32.WSAGetLastError()) {
+            .WSAEFAULT => unreachable,
+            .WSAENOPROTOOPT => unreachable,
+            .WSAENOTSOCK => unreachable,
+            else => |err| return windows.unexpectedWSAError(err),
+        }
+    }
+
+    if (errno != 0) {
+        return switch (@intToEnum(ws2_32.WinsockError, @truncate(u16, errno))) {
+            .WSAEACCES => error.PermissionDenied,
+            .WSAEADDRINUSE => error.AddressInUse,
+            .WSAEADDRNOTAVAIL => error.AddressNotAvailable,
+            .WSAEAFNOSUPPORT => error.AddressFamilyNotSupported,
+            .WSAEALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
+            .WSAEBADF => unreachable, // sockfd is not a valid open file descriptor.
+            .WSAECONNREFUSED => error.ConnectionRefused,
+            .WSAEFAULT => unreachable, // The socket structure address is outside the user's address space.
+            .WSAEISCONN => unreachable, // The socket is already connected.
+            .WSAENETUNREACH => error.NetworkUnreachable,
+            .WSAENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .WSAEPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
+            .WSAETIMEDOUT => error.ConnectionTimedOut,
+            else => |err| windows.unexpectedWSAError(err),
+        };
+    }
+}
