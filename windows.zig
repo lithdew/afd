@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = std.math;
+
 const os = std.os;
 const windows = os.windows;
 
@@ -14,12 +16,23 @@ pub const SIO_BSP_HANDLE = IOC_OUT | IOC_WS2 | 27;
 pub const SIO_BSP_HANDLE_SELECT = IOC_OUT | IOC_WS2 | 28;
 pub const SIO_BSP_HANDLE_POLL = IOC_OUT | IOC_WS2 | 29;
 
+pub const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS: windows.UCHAR = 0x1;
+pub const FILE_SKIP_SET_EVENT_ON_HANDLE: windows.UCHAR = 0x2;
+
 pub const OVERLAPPED_ENTRY = extern struct {
     lpCompletionKey: ULONG_PTR,
     lpOverlapped: LPOVERLAPPED,
     Internal: ULONG_PTR,
     dwNumberOfBytesTransferred: DWORD,
 };
+
+pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
+    const success = @import("kernel32.zig").SetFileCompletionNotificationModes(handle, flags);
+
+    if (success == FALSE) {
+        return unexpectedError(kernel32.GetLastError());
+    }
+}
 
 pub const GetQueuedCompletionStatusError = error{
     Aborted,
@@ -139,6 +152,21 @@ pub fn getsockoptError(fd: ws2_32.SOCKET) !void {
             .WSAEPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             .WSAETIMEDOUT => error.ConnectionTimedOut,
             else => |err| windows.unexpectedWSAError(err),
+        };
+    }
+}
+
+pub fn ReadFile_(handle: HANDLE, buf: []u8, overlapped: *OVERLAPPED) !void {
+    const len = math.cast(DWORD, buf.len) catch math.maxInt(DWORD);
+
+    const success = kernel32.ReadFile(handle, buf.ptr, len, null, overlapped);
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            .IO_PENDING => error.WouldBlock,
+            .OPERATION_ABORTED => error.OperationAborted,
+            .BROKEN_PIPE => error.BrokenPipe,
+            .HANDLE_EOF, .NETNAME_DELETED => error.EndOfFile,
+            else => |err| unexpectedError(err),
         };
     }
 }

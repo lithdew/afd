@@ -9,9 +9,35 @@ const net = std.net;
 usingnamespace poll;
 
 pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.socklen_t) callconv(.Async) !void {
-    try windows.connect(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len);
+    windows.connect(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len) catch |err| switch (err) {
+        error.WouldBlock => {},
+        else => return err,
+    };
+
     handle.waitUntilWritable();
+
     try windows.getsockoptError(@ptrCast(ws2_32.SOCKET, handle.unwrap()));
+}
+
+pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
+    var overlapped: windows.OVERLAPPED = .{
+        .Internal = 0,
+        .InternalHigh = 0,
+        .Offset = 0,
+        .OffsetHigh = 0,
+        .hEvent = null,
+    };
+
+    while (true) {
+        handle.waitUntilReadable();
+
+        windows.ReadFile_(handle.unwrap(), buf, &overlapped) catch |err| switch (err) {
+            error.WouldBlock => continue,
+            else => return err,
+        };
+
+        return overlapped.InternalHigh;
+    }
 }
 
 pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
@@ -28,7 +54,6 @@ pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
             0,
             ws2_32.WSA_FLAG_OVERLAPPED,
         ),
-        afd.AFD_POLL_ALL,
     );
     defer handle.deinit();
 
@@ -37,6 +62,11 @@ pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
     try connect(&handle, &addr.any, addr.getOsSockLen());
 
     std.debug.print("Connected to {}!\n", .{addr});
+
+    var buf: [1024]u8 = undefined;
+
+    std.debug.print("Got: {}", .{buf[0..try read(&handle, buf[0..])]});
+    std.debug.print("Got: {}", .{buf[0..try read(&handle, buf[0..])]});
 }
 
 pub fn main() !void {

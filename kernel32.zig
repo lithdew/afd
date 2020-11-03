@@ -5,6 +5,11 @@ const kernel32 = windows.kernel32;
 
 pub usingnamespace kernel32;
 
+pub extern "kernel32" fn SetFileCompletionNotificationModes(
+    FileHandle: windows.HANDLE,
+    Flags: windows.UCHAR,
+) callconv(.Stdcall) windows.BOOL;
+
 pub extern "kernel32" fn GetQueuedCompletionStatusEx(
     CompletionPort: windows.HANDLE,
     lpCompletionPortEntries: [*]windows.OVERLAPPED_ENTRY,
