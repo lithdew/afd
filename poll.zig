@@ -6,6 +6,8 @@ const ws2_32 = windows.ws2_32;
 const math = std.math;
 const testing = std.testing;
 
+const assert = std.debug.assert;
+
 pub const Handle = struct {
     const Self = @This();
 
@@ -25,20 +27,6 @@ pub const Handle = struct {
         return self.data.state.Handles[0].Handle;
     }
 };
-
-// pub fn List(comptime T: type) type {
-//     return struct {
-//         const Self = @This();
-
-//         next: ?*Self,
-//         prev: ?*Self,
-//         tail: ?*Self,
-
-//         inline fn isHead(self: *const Self) bool {
-//             return self.tail != null;
-//         }
-//     };
-// }
 
 pub const Poller = struct {
     const Self = @This();
