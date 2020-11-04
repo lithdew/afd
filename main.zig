@@ -19,7 +19,7 @@ const Handle = struct {
         windows.closesocket(@ptrCast(ws2_32.SOCKET, self.inner)) catch {};
     }
 
-    pub fn unwrap(self: *const Self) windows.HANDLE {
+    pub inline fn unwrap(self: *const Self) windows.HANDLE {
         return self.inner;
     }
 };
@@ -84,33 +84,23 @@ const Poller = struct {
     }
 };
 
-pub fn bind(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.socklen_t) !void {
-    try windows.bind_(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len);
+pub fn bind(handle: *Handle, addr: net.Address) !void {
+    try windows.bind_(@ptrCast(ws2_32.SOCKET, handle.unwrap()), &addr.any, addr.getOsSockLen());
 }
 
 pub fn listen(handle: *Handle, backlog: usize) !void {
     try windows.listen_(@ptrCast(ws2_32.SOCKET, handle.unwrap()), backlog);
 }
 
-pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.socklen_t) callconv(.Async) !void {
-    const bind_addr = ws2_32.sockaddr_in{
-        .family = ws2_32.AF_INET,
-        .port = 0,
-        .addr = 0,
-    };
-
-    try bind(
-        handle,
-        @ptrCast(*const ws2_32.sockaddr, &bind_addr),
-        @sizeOf(@TypeOf(bind_addr)),
-    );
+pub fn connect(handle: *Handle, addr: net.Address) callconv(.Async) !void {
+    try bind(handle, net.Address.initIp4(.{0, 0, 0, 0}, 0));
 
     var overlapped = Overlapped.init(@frame());
 
     windows.ConnectEx(
         @ptrCast(ws2_32.SOCKET, handle.unwrap()),
-        addr,
-        addr_len,
+        &addr.any,
+        addr.getOsSockLen(),
         &overlapped.inner,
     ) catch |err| switch (err) {
         error.WouldBlock => {
@@ -131,7 +121,7 @@ pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.s
 
 pub fn accept(handle: *Handle) callconv(.Async) !Handle {
     var accepted = Handle.init(try windows.WSASocketW(
-        ws2_32.AF_INET6,
+        ws2_32.AF_UNSPEC,
         ws2_32.SOCK_STREAM,
         ws2_32.IPPROTO_TCP,
         null,
@@ -213,7 +203,7 @@ pub fn runClient(poller: *Poller, stopped: *bool) callconv(.Async) !void {
 
     try poller.register(&handle);
 
-    try connect(&handle, &addr.any, addr.getOsSockLen());
+    try connect(&handle, addr);
 
     std.debug.print("Connected to {}!\n", .{addr});
 
@@ -245,7 +235,7 @@ pub fn runServer(poller: *Poller, stopped: *bool) callconv(.Async) !void {
 
     try poller.register(&handle);
 
-    try bind(&handle, &addr.any, addr.getOsSockLen());
+    try bind(&handle, addr);
     try listen(&handle, 128);
 
     std.debug.print("Listening for peers on: {}\n", .{addr});
@@ -283,7 +273,7 @@ pub fn runBenchmarkClient(poller: *Poller, stopped: *bool) callconv(.Async) !voi
 
     try poller.register(&handle);
 
-    try connect(&handle, &addr.any, addr.getOsSockLen());
+    try connect(&handle, addr);
 
     std.debug.print("Connected to {}!\n", .{addr});
 
@@ -314,7 +304,7 @@ pub fn runBenchmarkServer(poller: *Poller, stopped: *bool) callconv(.Async) !voi
 
     try poller.register(&handle);
 
-    try bind(&handle, &addr.any, addr.getOsSockLen());
+    try bind(&handle, addr);
     try listen(&handle, 128);
 
     std.debug.print("Listening for peers on: {}\n", .{addr});
