@@ -6,6 +6,13 @@ const ws2_32 = windows.ws2_32;
 pub usingnamespace ws2_32;
 
 pub const SO_UPDATE_CONNECT_CONTEXT = 0x7010;
+pub const SO_UPDATE_ACCEPT_CONTEXT = 0x700B;
+
+pub const sockaddr_storage = extern struct {
+    family: ADDRESS_FAMILY,
+    __ss_padding: [128 - @sizeOf(windows.ULONGLONG) - @sizeOf(ADDRESS_FAMILY)]u8,
+    __ss_align: windows.ULONGLONG,
+};
 
 pub extern "ws2_32" fn getsockopt(
     s: SOCKET,
@@ -22,7 +29,7 @@ pub extern "ws2_32" fn recv(
     flags: c_int,
 ) callconv(.Stdcall) c_int;
 
-pub const LPFN_CONNECTEX = fn(
+pub const LPFN_CONNECTEX = fn (
     s: SOCKET,
     name: *const sockaddr,
     namelen: c_int,
@@ -32,13 +39,13 @@ pub const LPFN_CONNECTEX = fn(
     lpOverlapped: *windows.OVERLAPPED,
 ) callconv(.Stdcall) windows.BOOL;
 
-pub const AcceptEx = fn(
+pub const AcceptEx = fn (
     sListenSocket: SOCKET,
     sAcceptSocket: SOCKET,
     lpOutputBuffer: [*]u8,
     dwReceiveDataLength: windows.DWORD,
-    dwLocalAddressLength: windows.DWORD,
-    dwRemoteAddressLength: windows.DWORD,
+    dwLocalAddressLength: socklen_t,
+    dwRemoteAddressLength: socklen_t,
     lpdwBytesReceived: ?*windows.DWORD,
     lpOverlapped: *windows.OVERLAPPED,
 ) callconv(.Stdcall) windows.BOOL;

@@ -32,14 +32,24 @@ pub const WSAID_ACCEPTEX = GUID{
     .Data1 = 0xb5367df1,
     .Data2 = 0xcbac,
     .Data3 = 0x11cf,
-    .Data4 = []u8{ 0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92 },
+    .Data4 = [8]u8{ 0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92 },
 };
 
 pub fn loadExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
     var func: T = undefined;
     var num_bytes: DWORD = undefined;
 
-    const rc = ws2_32.WSAIoctl(sock, SIO_GET_EXTENSION_FUNCTION_POINTER, @ptrCast(*const c_void, &guid), @sizeOf(GUID), &func, @sizeOf(T), &num_bytes, null, null);
+    const rc = ws2_32.WSAIoctl(
+        sock,
+        SIO_GET_EXTENSION_FUNCTION_POINTER,
+        @ptrCast(*const c_void, &guid),
+        @sizeOf(GUID),
+        &func,
+        @sizeOf(T),
+        &num_bytes,
+        null,
+        null,
+    );
     if (rc != 0) {
         return unexpectedWSAError(ws2_32.WSAGetLastError());
     }
@@ -128,8 +138,44 @@ pub fn findUnderlyingSocket(socket: ws2_32.SOCKET) !ws2_32.SOCKET {
     return err;
 }
 
+pub fn AcceptEx(listening_socket: ws2_32.SOCKET, accepted_socket: ws2_32.SOCKET, overlapped: *OVERLAPPED) !void {
+    const func = try loadExtensionFunction(@import("ws2_32.zig").AcceptEx, listening_socket, WSAID_ACCEPTEX);
+
+    var buf: [2 * @sizeOf(@import("ws2_32.zig").sockaddr_storage) + 32]u8 = undefined;
+    var num_bytes: windows.DWORD = undefined;
+
+    const success = func(
+        listening_socket,
+        accepted_socket,
+        &buf,
+        0,
+        @sizeOf(@import("ws2_32.zig").sockaddr_storage),
+        @sizeOf(@import("ws2_32.zig").sockaddr_storage),
+        &num_bytes,
+        overlapped,
+    );
+
+    if (success == windows.FALSE) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAECONNRESET => error.ConnectionResetByPeer,
+            .WSAEFAULT => error.BadAddress,
+            .WSAEINVAL => error.SocketNotListening,
+            .WSAEMFILE => error.ProcessFdQuotaExceeded,
+            .WSAENETDOWN => error.NetworkSubsystemFailed,
+            .WSAENOBUFS => error.FileDescriptorNotASocket,
+            .WSAEOPNOTSUPP => error.OperationNotSupported,
+            .WSA_IO_PENDING, .WSAEWOULDBLOCK => error.WouldBlock,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+}
+
 pub fn ConnectEx(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, sock_len: ws2_32.socklen_t, overlapped: *OVERLAPPED) !void {
-    const func = try loadExtensionFunction(@import("ws2_32.zig").LPFN_CONNECTEX, sock, WSAID_CONNECTEX);
+    const func = try loadExtensionFunction(
+        @import("ws2_32.zig").LPFN_CONNECTEX,
+        sock,
+        WSAID_CONNECTEX,
+    );
 
     const success = func(sock, sock_addr, @intCast(c_int, sock_len), null, 0, null, overlapped);
     if (success == windows.FALSE) {
@@ -165,6 +211,23 @@ pub fn bind_(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, sock_len: w
             .WSAEINVAL => error.AlreadyBound,
             .WSAENOBUFS => error.NoEphemeralPortsAvailable,
             .WSAENOTSOCK => error.NotASocket,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+}
+
+pub fn listen_(sock: ws2_32.SOCKET, backlog: usize) !void {
+    const rc = ws2_32.listen(sock, @intCast(c_int, backlog));
+    if (rc == windows.ws2_32.SOCKET_ERROR) {
+        return switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAENETDOWN => error.NetworkSubsystemFailed,
+            .WSAEADDRINUSE => error.AddressInUse,
+            .WSAEISCONN => error.AlreadyConnected,
+            .WSAEINVAL => error.SocketNotBound,
+            .WSAEMFILE, .WSAENOBUFS => error.SystemResources,
+            .WSAENOTSOCK => error.FileDescriptorNotASocket,
+            .WSAEOPNOTSUPP => error.OperationNotSupported,
+            .WSAEINPROGRESS => error.WouldBlock,
             else => |err| unexpectedWSAError(err),
         };
     }
@@ -270,7 +333,7 @@ pub const SetSockOptError = error{
     SocketNotBound,
 } || std.os.UnexpectedError;
 
-pub fn setsockopt(sock: ws2_32.SOCKET, level: u32, opt: u32, val: ?[]u8) SetSockOptError!void {
+pub fn setsockopt(sock: ws2_32.SOCKET, level: u32, opt: u32, val: ?[]const u8) SetSockOptError!void {
     const rc = ws2_32.setsockopt(sock, level, opt, if (val) |v| v.ptr else null, if (val) |v| @intCast(ws2_32.socklen_t, v.len) else 0);
     if (rc == ws2_32.SOCKET_ERROR) {
         switch (ws2_32.WSAGetLastError()) {

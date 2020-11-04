@@ -88,6 +88,10 @@ pub fn bind(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.sock
     try windows.bind_(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len);
 }
 
+pub fn listen(handle: *Handle, backlog: usize) !void {
+    try windows.listen_(@ptrCast(ws2_32.SOCKET, handle.unwrap()), backlog);
+}
+
 pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.socklen_t) callconv(.Async) !void {
     const bind_addr = ws2_32.sockaddr_in{
         .family = ws2_32.AF_INET,
@@ -103,7 +107,12 @@ pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.s
 
     var overlapped = Overlapped.init(@frame());
 
-    windows.ConnectEx(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len, &overlapped.inner) catch |err| switch (err) {
+    windows.ConnectEx(
+        @ptrCast(ws2_32.SOCKET, handle.unwrap()),
+        addr,
+        addr_len,
+        &overlapped.inner,
+    ) catch |err| switch (err) {
         error.WouldBlock => {
             suspend;
         },
@@ -112,7 +121,50 @@ pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.s
 
     try windows.getsockoptError(@ptrCast(ws2_32.SOCKET, handle.unwrap()));
 
-    try windows.setsockopt(@ptrCast(ws2_32.SOCKET, handle.unwrap()), ws2_32.SOL_SOCKET, ws2_32.SO_UPDATE_CONNECT_CONTEXT, null);
+    try windows.setsockopt(
+        @ptrCast(ws2_32.SOCKET, handle.unwrap()),
+        ws2_32.SOL_SOCKET,
+        ws2_32.SO_UPDATE_CONNECT_CONTEXT,
+        null,
+    );
+}
+
+pub fn accept(handle: *Handle) callconv(.Async) !Handle {
+    var accepted = Handle.init(try windows.WSASocketW(
+        ws2_32.AF_INET6,
+        ws2_32.SOCK_STREAM,
+        ws2_32.IPPROTO_TCP,
+        null,
+        0,
+        ws2_32.WSA_FLAG_OVERLAPPED,
+    ));
+    errdefer accepted.deinit();
+
+    var overlapped = Overlapped.init(@frame());
+
+    windows.AcceptEx(
+        @ptrCast(ws2_32.SOCKET, handle.unwrap()),
+        @ptrCast(ws2_32.SOCKET, accepted.unwrap()),
+        &overlapped.inner,
+    ) catch |err| switch (err) {
+        error.WouldBlock => {
+            suspend;
+        },
+        else => return err,
+    };
+
+    var opt_val: []const u8 = undefined;
+    opt_val.ptr = @ptrCast([*]const u8, &handle.unwrap());
+    opt_val.len = @sizeOf(ws2_32.SOCKET);
+
+    try windows.setsockopt(
+        @ptrCast(ws2_32.SOCKET, accepted.unwrap()),
+        ws2_32.SOL_SOCKET,
+        ws2_32.SO_UPDATE_ACCEPT_CONTEXT,
+        opt_val,
+    );
+
+    return accepted;
 }
 
 pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
@@ -141,7 +193,7 @@ pub fn write(handle: *Handle, buf: []const u8) callconv(.Async) !usize {
     return overlapped.inner.InternalHigh;
 }
 
-pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
+pub fn runClient(poller: *Poller, stopped: *bool) callconv(.Async) !void {
     errdefer |err| std.debug.print("Got an error: {}\n", .{@errorName(err)});
     defer stopped.* = true;
 
@@ -173,6 +225,37 @@ pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
     _ = try write(&handle, "Hello world!");
 }
 
+pub fn runServer(poller: *Poller, stopped: *bool) callconv(.Async) !void {
+    errdefer |err| std.debug.print("Got an error: {}\n", .{@errorName(err)});
+    defer stopped.* = true;
+
+    const addr = try net.Address.parseIp("127.0.0.1", 9000);
+
+    var handle = Handle.init(
+        try windows.WSASocketW(
+            addr.any.family,
+            ws2_32.SOCK_STREAM,
+            ws2_32.IPPROTO_TCP,
+            null,
+            0,
+            ws2_32.WSA_FLAG_OVERLAPPED,
+        ),
+    );
+    defer handle.deinit();
+
+    try poller.register(&handle);
+
+    try bind(&handle, &addr.any, addr.getOsSockLen());
+    try listen(&handle, 128);
+
+    std.debug.print("Listening for peers on: {}\n", .{addr});
+
+    var client = try accept(&handle);
+    defer client.deinit();
+
+    std.debug.print("A client has connected!\n", .{});
+}
+
 pub fn main() !void {
     _ = try windows.WSAStartup(2, 2);
     defer windows.WSACleanup() catch {};
@@ -181,7 +264,7 @@ pub fn main() !void {
     defer poller.deinit();
 
     var stopped = false;
-    var frame = async run(&poller, &stopped);
+    var frame = async runServer(&poller, &stopped);
 
     while (!stopped) {
         try poller.poll();
