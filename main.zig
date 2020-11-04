@@ -253,7 +253,14 @@ pub fn runServer(poller: *Poller, stopped: *bool) callconv(.Async) !void {
     var client = try accept(&handle);
     defer client.deinit();
 
+    try poller.register(&client);
+
     std.debug.print("A client has connected!\n", .{});
+
+    var buf: [1024]u8 = undefined;
+
+    std.debug.print("Got: {}", .{buf[0..try read(&client, buf[0..])]});
+    std.debug.print("Got: {}", .{buf[0..try read(&client, buf[0..])]});
 }
 
 pub fn main() !void {
