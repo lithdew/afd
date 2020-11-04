@@ -76,7 +76,7 @@ const Poller = struct {
         const num_events = try windows.GetQueuedCompletionStatusEx(self.port, &events, null, false);
 
         for (events[0..num_events]) |event| {
-            std.debug.print("IOCP Notification ({})\n", .{event});
+            // std.debug.print("IOCP Notification ({})\n", .{event});
 
             const overlapped = @fieldParentPtr(Overlapped, "inner", event.lpOverlapped);
             resume overlapped.frame;
@@ -263,6 +263,76 @@ pub fn runServer(poller: *Poller, stopped: *bool) callconv(.Async) !void {
     std.debug.print("Got: {}", .{buf[0..try read(&client, buf[0..])]});
 }
 
+pub fn runBenchmarkClient(poller: *Poller, stopped: *bool) callconv(.Async) !void {
+    errdefer |err| std.debug.print("Got an error: {}\n", .{@errorName(err)});
+    defer stopped.* = true;
+
+    const addr = try net.Address.parseIp("127.0.0.1", 9000);
+
+    var handle = Handle.init(
+        try windows.WSASocketW(
+            addr.any.family,
+            ws2_32.SOCK_STREAM,
+            ws2_32.IPPROTO_TCP,
+            null,
+            0,
+            ws2_32.WSA_FLAG_OVERLAPPED,
+        ),
+    );
+    defer handle.deinit();
+
+    try poller.register(&handle);
+
+    try connect(&handle, &addr.any, addr.getOsSockLen());
+
+    std.debug.print("Connected to {}!\n", .{addr});
+
+    var buf: [65536]u8 = undefined;
+
+    while (true) {
+        _ = try write(&handle, buf[0..]);
+    }
+}
+
+pub fn runBenchmarkServer(poller: *Poller, stopped: *bool) callconv(.Async) !void {
+    errdefer |err| std.debug.print("Got an error: {}\n", .{@errorName(err)});
+    defer stopped.* = true;
+
+    const addr = try net.Address.parseIp("127.0.0.1", 9000);
+
+    var handle = Handle.init(
+        try windows.WSASocketW(
+            addr.any.family,
+            ws2_32.SOCK_STREAM,
+            ws2_32.IPPROTO_TCP,
+            null,
+            0,
+            ws2_32.WSA_FLAG_OVERLAPPED,
+        ),
+    );
+    defer handle.deinit();
+
+    try poller.register(&handle);
+
+    try bind(&handle, &addr.any, addr.getOsSockLen());
+    try listen(&handle, 128);
+
+    std.debug.print("Listening for peers on: {}\n", .{addr});
+
+    var client = try accept(&handle);
+    defer client.deinit();
+
+    try poller.register(&client);
+
+    std.debug.print("A client has connected!\n", .{});
+
+    var buf: [65536]u8 = undefined;
+
+    while (true) {
+        _ = try read(&client, buf[0..]);
+    }
+}
+
 pub fn main() !void {
     _ = try windows.WSAStartup(2, 2);
     defer windows.WSACleanup() catch {};
@@ -271,13 +341,14 @@ pub fn main() !void {
     defer poller.deinit();
 
     var stopped = false;
-    var frame = async runServer(&poller, &stopped);
+
+    var server_frame = async runBenchmarkServer(&poller, &stopped);
+    var client_frame = async runBenchmarkClient(&poller, &stopped);
 
     while (!stopped) {
         try poller.poll();
     }
 
-    nosuspend await frame catch |err| switch (err) {
-        else => return err,
-    };
+    try nosuspend await server_frame;
+    try nosuspend await client_frame;
 }
