@@ -22,7 +22,7 @@ pub extern "ws2_32" fn recv(
     flags: c_int,
 ) callconv(.Stdcall) c_int;
 
-pub const LPFN_CONNECTEX = fn ConnectEx(
+pub const LPFN_CONNECTEX = fn(
     s: SOCKET,
     name: *const sockaddr,
     namelen: c_int,
@@ -30,4 +30,15 @@ pub const LPFN_CONNECTEX = fn ConnectEx(
     dwSendDataLength: windows.DWORD,
     lpdwBytesSent: ?*windows.DWORD,
     lpOverlapped: *windows.OVERLAPPED,
-) callconv(.C) windows.BOOL;
+) callconv(.Stdcall) windows.BOOL;
+
+pub const AcceptEx = fn(
+    sListenSocket: SOCKET,
+    sAcceptSocket: SOCKET,
+    lpOutputBuffer: [*]u8,
+    dwReceiveDataLength: windows.DWORD,
+    dwLocalAddressLength: windows.DWORD,
+    dwRemoteAddressLength: windows.DWORD,
+    lpdwBytesReceived: ?*windows.DWORD,
+    lpOverlapped: *windows.OVERLAPPED,
+) callconv(.Stdcall) windows.BOOL;

@@ -28,6 +28,13 @@ pub const WSAID_CONNECTEX = GUID{
     .Data4 = [8]u8{ 0x8e, 0xe9, 0x76, 0xe5, 0x8c, 0x74, 0x06, 0x3e },
 };
 
+pub const WSAID_ACCEPTEX = GUID{
+    .Data1 = 0xb5367df1,
+    .Data2 = 0xcbac,
+    .Data3 = 0x11cf,
+    .Data4 = []u8{ 0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92 },
+};
+
 pub fn loadExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
     var func: T = undefined;
     var num_bytes: DWORD = undefined;
