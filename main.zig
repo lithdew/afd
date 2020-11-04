@@ -128,6 +128,19 @@ pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
     return overlapped.inner.InternalHigh;
 }
 
+pub fn write(handle: *Handle, buf: []const u8) callconv(.Async) !usize {
+    var overlapped = Overlapped.init(@frame());
+
+    windows.WriteFile_(handle.unwrap(), buf, &overlapped.inner) catch |err| switch (err) {
+        error.WouldBlock => {
+            suspend;
+        },
+        else => return err,
+    };
+
+    return overlapped.inner.InternalHigh;
+}
+
 pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
     errdefer |err| std.debug.print("Got an error: {}\n", .{@errorName(err)});
     defer stopped.* = true;
@@ -156,6 +169,8 @@ pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
 
     std.debug.print("Got: {}", .{buf[0..try read(&handle, buf[0..])]});
     std.debug.print("Got: {}", .{buf[0..try read(&handle, buf[0..])]});
+
+    _ = try write(&handle, "Hello world!");
 }
 
 pub fn main() !void {

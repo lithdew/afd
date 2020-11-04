@@ -292,6 +292,21 @@ pub fn ReadFile_(handle: HANDLE, buf: []u8, overlapped: *OVERLAPPED) !void {
     }
 }
 
+pub fn WriteFile_(handle: HANDLE, buf: []const u8, overlapped: *OVERLAPPED) !void {
+    const len = math.cast(DWORD, buf.len) catch math.maxInt(DWORD);
+
+    const success = kernel32.WriteFile(handle, buf.ptr, len, null, overlapped);
+    if (success == FALSE) {
+        return switch (kernel32.GetLastError()) {
+            .IO_PENDING => error.WouldBlock,
+            .OPERATION_ABORTED => error.OperationAborted,
+            .BROKEN_PIPE => error.BrokenPipe,
+            .HANDLE_EOF, .NETNAME_DELETED => error.EndOfFile,
+            else => |err| unexpectedError(err),
+        };
+    }
+}
+
 pub fn CancelIoEx(handle: HANDLE, overlapped: *OVERLAPPED) !void {
     const rc = kernel32.CancelIoEx(handle, overlapped);
     if (rc == 0) {
