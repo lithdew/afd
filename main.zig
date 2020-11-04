@@ -66,7 +66,7 @@ const Poller = struct {
     }
 
     pub fn register(self: *const Self, handle: *const Handle) !void {
-        try windows.SetFileCompletionNotificationModes(handle.unwrap(), windows.FILE_SKIP_SET_EVENT_ON_HANDLE | windows.FILE_SKIP_SET_EVENT_ON_HANDLE);
+        try windows.SetFileCompletionNotificationModes(handle.unwrap(), windows.FILE_SKIP_SET_EVENT_ON_HANDLE | windows.FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
         _ = try windows.CreateIoCompletionPort(handle.unwrap(), self.port, 0, 0);
     }
 
