@@ -1,64 +1,140 @@
 const std = @import("std");
-const afd = @import("afd.zig");
-const poll = @import("poll.zig");
 const windows = @import("windows.zig");
 const ws2_32 = @import("ws2_32.zig");
 
+const os = std.os;
 const net = std.net;
+const math = std.math;
 
-usingnamespace poll;
+const Handle = struct {
+    const Self = @This();
+
+    inner: windows.HANDLE,
+
+    pub fn init(handle: windows.HANDLE) Self {
+        return Self{ .inner = handle };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        windows.closesocket(@ptrCast(ws2_32.SOCKET, self.inner)) catch {};
+    }
+
+    pub fn unwrap(self: *const Self) windows.HANDLE {
+        return self.inner;
+    }
+};
+
+const Overlapped = struct {
+    const Self = @This();
+
+    inner: windows.OVERLAPPED,
+    frame: anyframe,
+
+    pub fn init(frame: anyframe) Self {
+        return .{
+            .inner = .{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .Offset = 0,
+                .OffsetHigh = 0,
+                .hEvent = null,
+            },
+            .frame = frame,
+        };
+    }
+};
+
+const Poller = struct {
+    const Self = @This();
+
+    port: windows.HANDLE,
+
+    pub fn init() !Self {
+        const port = try windows.CreateIoCompletionPort(
+            windows.INVALID_HANDLE_VALUE,
+            null,
+            undefined,
+            math.maxInt(windows.DWORD),
+        );
+        errdefer windows.CloseHandle(port);
+
+        return Self{ .port = port };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        windows.CloseHandle(self.port);
+    }
+
+    pub fn register(self: *const Self, handle: *const Handle) !void {
+        try windows.SetFileCompletionNotificationModes(handle.unwrap(), windows.FILE_SKIP_SET_EVENT_ON_HANDLE | windows.FILE_SKIP_SET_EVENT_ON_HANDLE);
+        _ = try windows.CreateIoCompletionPort(handle.unwrap(), self.port, 0, 0);
+    }
+
+    pub fn poll(self: *const Self) !void {
+        var events: [1024]windows.OVERLAPPED_ENTRY = undefined;
+
+        const num_events = try windows.GetQueuedCompletionStatusEx(self.port, &events, null, false);
+
+        for (events[0..num_events]) |event| {
+            std.debug.print("IOCP Notification ({})\n", .{event});
+
+            const overlapped = @fieldParentPtr(Overlapped, "inner", event.lpOverlapped);
+            resume overlapped.frame;
+        }
+    }
+};
+
+pub fn bind(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.socklen_t) !void {
+    try windows.bind_(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len);
+}
 
 pub fn connect(handle: *Handle, addr: *const ws2_32.sockaddr, addr_len: ws2_32.socklen_t) callconv(.Async) !void {
-    windows.connect(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len) catch |err| switch (err) {
-        error.WouldBlock => {},
+    const bind_addr = ws2_32.sockaddr_in{
+        .family = ws2_32.AF_INET,
+        .port = 0,
+        .addr = 0,
+    };
+
+    try bind(
+        handle,
+        @ptrCast(*const ws2_32.sockaddr, &bind_addr),
+        @sizeOf(@TypeOf(bind_addr)),
+    );
+
+    var overlapped = Overlapped.init(@frame());
+
+    windows.ConnectEx(@ptrCast(ws2_32.SOCKET, handle.unwrap()), addr, addr_len, &overlapped.inner) catch |err| switch (err) {
+        error.WouldBlock => {
+            suspend;
+        },
         else => return err,
     };
 
-    handle.waitUntilWritable();
-
     try windows.getsockoptError(@ptrCast(ws2_32.SOCKET, handle.unwrap()));
+
+    try windows.setsockopt(@ptrCast(ws2_32.SOCKET, handle.unwrap()), ws2_32.SOL_SOCKET, ws2_32.SO_UPDATE_CONNECT_CONTEXT, null);
 }
 
 pub fn read(handle: *Handle, buf: []u8) callconv(.Async) !usize {
-    var overlapped: windows.OVERLAPPED = .{
-        .Internal = 0,
-        .InternalHigh = 0,
-        .Offset = 0,
-        .OffsetHigh = 0,
-        .hEvent = null,
+    var overlapped = Overlapped.init(@frame());
+
+    windows.ReadFile_(handle.unwrap(), buf, &overlapped.inner) catch |err| switch (err) {
+        error.WouldBlock => {
+            suspend;
+        },
+        else => return err,
     };
 
-    while (true) {
-        windows.ReadFile_(handle.unwrap(), buf, &overlapped) catch |err| switch (err) {
-            error.WouldBlock => {
-                try windows.CancelIoEx(handle.unwrap(), &overlapped);
-
-                if (windows.GetOverlappedResult_(handle.unwrap(), &overlapped, true)) |_| {
-                    break;
-                } else |cancel_err| {
-                    if (cancel_err != error.OperationAborted) {
-                        return cancel_err;
-                    }
-                }
-
-                handle.waitUntilReadable();
-                continue;
-            },
-            else => return err,
-        };
-
-        break;
-    }
-
-    return overlapped.InternalHigh;
+    return overlapped.inner.InternalHigh;
 }
 
 pub fn run(poller: *Poller, stopped: *bool) callconv(.Async) !void {
+    errdefer |err| std.debug.print("Got an error: {}\n", .{@errorName(err)});
     defer stopped.* = true;
 
     const addr = try net.Address.parseIp("127.0.0.1", 9000);
 
-    var handle = try Handle.init(
+    var handle = Handle.init(
         try windows.WSASocketW(
             addr.any.family,
             ws2_32.SOCK_STREAM,
@@ -86,7 +162,7 @@ pub fn main() !void {
     _ = try windows.WSAStartup(2, 2);
     defer windows.WSACleanup() catch {};
 
-    var poller = try Poller.init("Test");
+    var poller = try Poller.init();
     defer poller.deinit();
 
     var stopped = false;
@@ -97,7 +173,6 @@ pub fn main() !void {
     }
 
     nosuspend await frame catch |err| switch (err) {
-        error.EndOfFile => {},
         else => return err,
     };
 }

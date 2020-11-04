@@ -16,8 +16,29 @@ pub const SIO_BSP_HANDLE = IOC_OUT | IOC_WS2 | 27;
 pub const SIO_BSP_HANDLE_SELECT = IOC_OUT | IOC_WS2 | 28;
 pub const SIO_BSP_HANDLE_POLL = IOC_OUT | IOC_WS2 | 29;
 
+pub const SIO_GET_EXTENSION_FUNCTION_POINTER = IOC_OUT | IOC_IN | IOC_WS2 | 6;
+
 pub const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS: windows.UCHAR = 0x1;
 pub const FILE_SKIP_SET_EVENT_ON_HANDLE: windows.UCHAR = 0x2;
+
+pub const WSAID_CONNECTEX = GUID{
+    .Data1 = 0x25a207b9,
+    .Data2 = 0xddf3,
+    .Data3 = 0x4660,
+    .Data4 = [8]u8{ 0x8e, 0xe9, 0x76, 0xe5, 0x8c, 0x74, 0x06, 0x3e },
+};
+
+pub fn loadExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
+    var func: T = undefined;
+    var num_bytes: DWORD = undefined;
+
+    const rc = ws2_32.WSAIoctl(sock, SIO_GET_EXTENSION_FUNCTION_POINTER, @ptrCast(*const c_void, &guid), @sizeOf(GUID), &func, @sizeOf(T), &num_bytes, null, null);
+    if (rc != 0) {
+        return unexpectedWSAError(ws2_32.WSAGetLastError());
+    }
+
+    return func;
+}
 
 pub const OVERLAPPED_ENTRY = extern struct {
     lpCompletionKey: ULONG_PTR,
@@ -100,6 +121,48 @@ pub fn findUnderlyingSocket(socket: ws2_32.SOCKET) !ws2_32.SOCKET {
     return err;
 }
 
+pub fn ConnectEx(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, sock_len: ws2_32.socklen_t, overlapped: *OVERLAPPED) !void {
+    const func = try loadExtensionFunction(@import("ws2_32.zig").LPFN_CONNECTEX, sock, WSAID_CONNECTEX);
+
+    const success = func(sock, sock_addr, @intCast(c_int, sock_len), null, 0, null, overlapped);
+    if (success == windows.FALSE) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAEADDRINUSE => error.AddressInUse,
+            .WSAEADDRNOTAVAIL => error.AddressNotAvailable,
+            .WSAECONNREFUSED => error.ConnectionRefused,
+            .WSAETIMEDOUT => error.ConnectionTimedOut,
+            .WSAEFAULT => error.BadAddress,
+            .WSAEINVAL => error.NotYetBound,
+            .WSAEISCONN => error.AlreadyConnected,
+            .WSAENOTSOCK => error.NotASocket,
+            .WSAEACCES => error.BroadcastNotEnabled,
+            .WSAENOBUFS => error.SystemResources,
+            .WSAEAFNOSUPPORT => error.AddressFamilyNotSupported,
+            .WSA_IO_PENDING, .WSAEINPROGRESS, .WSAEWOULDBLOCK => error.WouldBlock,
+            .WSAEHOSTUNREACH, .WSAENETUNREACH => error.NetworkUnreachable,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+}
+
+pub fn bind_(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, sock_len: ws2_32.socklen_t) !void {
+    const rc = ws2_32.bind(sock, sock_addr, @intCast(c_int, sock_len));
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSAENETDOWN => error.NetworkSubsystemFailed,
+            .WSAEACCES => error.AccessDenied,
+            .WSAEADDRINUSE => error.AddressInUse,
+            .WSAEADDRNOTAVAIL => error.AddressNotAvailable,
+            .WSAEFAULT => error.BadAddress,
+            .WSAEINPROGRESS => error.WouldBlock,
+            .WSAEINVAL => error.AlreadyBound,
+            .WSAENOBUFS => error.NoEphemeralPortsAvailable,
+            .WSAENOTSOCK => error.NotASocket,
+            else => |err| unexpectedWSAError(err),
+        };
+    }
+}
+
 pub fn connect(sock: ws2_32.SOCKET, sock_addr: *const ws2_32.sockaddr, len: ws2_32.socklen_t) !void {
     const rc = ws2_32.connect(sock, sock_addr, @intCast(i32, len));
     if (rc == ws2_32.SOCKET_ERROR) {
@@ -179,6 +242,38 @@ pub fn getsockoptError(fd: ws2_32.SOCKET) !void {
             .WSAETIMEDOUT => error.ConnectionTimedOut,
             else => |err| windows.unexpectedWSAError(err),
         };
+    }
+}
+
+pub const SetSockOptError = error{
+    /// The socket is already connected, and a specified option cannot be set while the socket is connected.
+    AlreadyConnected,
+
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// The send and receive timeout values are too big to fit into the timeout fields in the socket structure.
+    TimeoutTooBig,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+
+    NetworkSubsystemFailed,
+    FileDescriptorNotASocket,
+    SocketNotBound,
+} || std.os.UnexpectedError;
+
+pub fn setsockopt(sock: ws2_32.SOCKET, level: u32, opt: u32, val: ?[]u8) SetSockOptError!void {
+    const rc = ws2_32.setsockopt(sock, level, opt, if (val) |v| v.ptr else null, if (val) |v| @intCast(ws2_32.socklen_t, v.len) else 0);
+    if (rc == ws2_32.SOCKET_ERROR) {
+        switch (ws2_32.WSAGetLastError()) {
+            .WSANOTINITIALISED => unreachable,
+            .WSAENETDOWN => return error.NetworkSubsystemFailed,
+            .WSAEFAULT => unreachable,
+            .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+            .WSAEINVAL => return error.SocketNotBound,
+            else => |err| return unexpectedWSAError(err),
+        }
     }
 }
 
