@@ -332,13 +332,32 @@ pub fn main() !void {
 
     var stopped = false;
 
-    var server_frame = async runBenchmarkServer(&poller, &stopped);
-    var client_frame = async runBenchmarkClient(&poller, &stopped);
+    var frame = async runClient(&poller, &stopped);
 
     while (!stopped) {
         try poller.poll();
     }
 
-    try nosuspend await server_frame;
-    try nosuspend await client_frame;
+    try nosuspend await frame;
 }
+
+
+// pub fn main() !void {
+//     _ = try windows.WSAStartup(2, 2);
+//     defer windows.WSACleanup() catch {};
+
+//     var poller = try Poller.init();
+//     defer poller.deinit();
+
+//     var stopped = false;
+
+//     var server_frame = async runBenchmarkServer(&poller, &stopped);
+//     var client_frame = async runBenchmarkClient(&poller, &stopped);
+
+//     while (!stopped) {
+//         try poller.poll();
+//     }
+
+//     try nosuspend await server_frame;
+//     try nosuspend await client_frame;
+// }
