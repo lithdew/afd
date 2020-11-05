@@ -227,12 +227,17 @@ pub fn connect(socket: windows.HANDLE, addr: *const ws2_32.sockaddr, addr_len: w
     //     }
     // };
 
+    // var connect_info = AFD_CONNECT_INFO{
+    //     .UseSAN = windows.FALSE,
+    //     .Root = 0,
+    //     .Unknown = 0,
+    //     .RemoteAddress = addr.*,
+    // };
 
-    var connect_info = AFD_CONNECT_INFO{
-        .UseSAN = windows.FALSE,
-        .Root = 0,
-        .Unknown = 0,
-        .RemoteAddress = addr.*,
+    var connect_info = [_]u8{
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0xe3,
+        0x9f, 0x60, 0xd4, 0x00, 0x00, 0x00, 0x02, 0x00, 0x23, 0x28, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
     };
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
@@ -250,7 +255,7 @@ pub fn connect(socket: windows.HANDLE, addr: *const ws2_32.sockaddr, addr_len: w
         null,
         0,
     );
-    
+
     if (status == @intToEnum(windows.NTSTATUS, 259)) { // STATUS_PENDING
         suspend {
             assert(NtTestAlert() == .SUCCESS);
