@@ -24,7 +24,7 @@ pub fn work(stopped: *bool) !void {
     const socket = try windows.findUnderlyingSocket(handle);
 
     try afd.bind(socket, &bind_addr.any, bind_addr.getOsSockLen());
-    try afd.connect(handle, &dest_addr.any, dest_addr.getOsSockLen());
+    try afd.connect(socket, &dest_addr.any, dest_addr.getOsSockLen());
 }
 
 pub fn main() !void {
